@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"flag"
 	"os"
+	"io"
 	"log"
 	"strings"
 	"time"
@@ -13,22 +14,65 @@ import (
 
 
 func main() {
-	homeDir, _ := os.UserHomeDir()
-	dir := flag.String("dir", homeDir, "Full Path of directory to archive")
+	defaultDir, _ := os.UserHomeDir()
+	source_dir := flag.String("source_dir", defaultDir, "Full Path of directory to archive")
+	dest_dir := flag.String("dest_dir", "", "Full Path of archive directory")
+
 	flag.Parse()
-	_, err := os.Stat(*dir)
-	if err != nil {
-		log.Fatal(err)
-	}
-	ZipWriter(*dir)
+
+	fmt.Println("Archiving...")
+	source, dest := ValidateDirs(*source_dir, *dest_dir)
+	archiveFile := ZipWriter(source)
+	source = source + "/" + archiveFile
+	dest = dest + archiveFile
+	MoveFile(source, dest)
 }
 
-func GenerateFileName(homeDir string) string {
-	sliced := strings.Split(homeDir, "/")
-	userName := sliced[len(sliced)-1]
+func MoveFile(source, dest string) {
+    inputFile, err := os.Open(source)
+    if err != nil {
+        log.Fatal(err)
+    }
+    outputFile, err := os.Create(dest)
+    if err != nil {
+        inputFile.Close()
+        log.Fatal(err)
+    }
+    defer outputFile.Close()
+    _, err = io.Copy(outputFile, inputFile)
+    inputFile.Close()
+    if err != nil {
+        log.Fatal(err)
+    }
+    err = os.Remove(source)
+    if err != nil {
+        log.Fatal(err)
+    }
+}
+
+func ValidateDirs(dir1, dir2 string) (string, string) {
+	_, err1 := os.Stat(dir1)
+	if err1 != nil {
+		log.Fatal(err1)
+	}
+
+	_, err2 := os.Stat(dir2)
+	if err2 != nil {
+		log.Fatal("Please add archive directory!")
+	}
+
+	if !strings.HasSuffix(dir2, "/") {
+		dir2 = dir2 + "/"
+	}
+	return dir1, dir2
+}
+
+func GenerateFileName(defaultDir string) string {
+	sliced := strings.Split(defaultDir, "/")
+	dirName := sliced[len(sliced)-1]
 	formatedTimestamp := time.Now().Format(time.UnixDate)
 	timestamp := strings.ReplaceAll(strings.ReplaceAll(formatedTimestamp, " ", "_"), ":", "-")
-	filename := userName + "_" + timestamp + ".zip"
+	filename := dirName + "_" + timestamp + ".zip"
 	return filename
 }
 
@@ -39,7 +83,6 @@ func addFiles(w *zip.Writer, basePath, baseInZip string) {
     }
 
     for _, file := range files {
-        fmt.Println(basePath + file.Name())
         if !file.IsDir() && file.Mode().IsRegular() {
             dat, _ := ioutil.ReadFile(basePath + file.Name())
 
@@ -55,23 +98,24 @@ func addFiles(w *zip.Writer, basePath, baseInZip string) {
     }
 }
 
-func ZipWriter(homeDir string) {
-    outFile, err := os.Create(GenerateFileName(homeDir))
+func ZipWriter(dir string) string {
+    fileName := GenerateFileName(dir)
+    outFile, err := os.Create(dir + "/" + fileName)
     if err != nil {
         log.Fatal(err)
     }
     defer outFile.Close()
 
-    writer := zip.NewWriter(outFile)
-    homeDir = homeDir + "/"
-    addFiles(writer, homeDir, "")
+    if !strings.HasSuffix(dir, "/") {
+		dir = dir + "/"
+	}
 
-    if err != nil {
-        log.Fatal(err)
-    }
+    writer := zip.NewWriter(outFile)
+    addFiles(writer, dir, "")
 
     err = writer.Close()
     if err != nil {
         log.Fatal(err)
     }
+    return fileName
 }
